@@ -95,12 +95,9 @@ https://dcm.rethinkpriorities.org/model_runs
 
 ## License
 
-[Add your license information here]
+This project is licensed under the MIT License.
 
 ## Citation
 
-[Add citation information here]
+[Link to arxiv paper ]
 
-## Contact
-
-[Add contact information here]
