@@ -20,7 +20,6 @@ pytensor.config.compiledir = f'/tmp/pytensor_cache_{os.getpid()}'
 import json
 import logging
 import random
-import requests
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +27,9 @@ from typing import Dict, List, Tuple, Optional, Any
 
 import numpy as np
 import pymc as pm
+
+MODULE_DIR = Path(__file__).resolve().parent
+DEFAULT_DATA_FILE = MODULE_DIR / "model_data.json"
 
 
 @dataclass
@@ -50,11 +52,8 @@ class ModelConfig:
     DEFAULT_ALPHA: int = 1
     DEFAULT_BETA: int = 5
 
-    # API endpoint
-    API_ENDPOINT: str = (
-        "https://dcm.rethinkpriorities.org/schemes/133/json?just_one=true&variant=0&subvariant=0"
-    )
-    POST_ENDPOINT: str = "https://dcm.rethinkpriorities.org/model_runs"
+    # Local data file (model specifications are read from disk; no network access is used)
+    DATA_FILE: Path = DEFAULT_DATA_FILE
 
 
 def setup_logging(level: str = "INFO") -> logging.Logger:
@@ -68,24 +67,23 @@ def setup_logging(level: str = "INFO") -> logging.Logger:
 
 
 class DataFetcher:
-    """Handles data retrieval from external APIs."""
+    """Handles loading model data from a local JSON file."""
 
-    def __init__(self, api_endpoint: str):
-        self.api_endpoint = api_endpoint
+    def __init__(self, data_file: Path = DEFAULT_DATA_FILE):
+        self.data_file = Path(data_file)
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def fetch_data(self) -> List[Dict]:
-        """Fetch model data from the API."""
-        self.logger.info(f"Fetching data from API: {self.api_endpoint}")
+        """Load model data from the local JSON file."""
+        self.logger.info(f"Loading data from local file: {self.data_file}")
         try:
-            response = requests.get(self.api_endpoint)
-            response.raise_for_status()
-            data = response.json()
-            self.logger.info(f"Successfully fetched {len(data)} data items")
+            with open(self.data_file, "r") as f:
+                data = json.load(f)
+            self.logger.info(f"Successfully loaded {len(data)} data items")
             return data
-        except requests.RequestException as e:
-            self.logger.error(f"Failed to fetch data from API: {e}")
-            raise RuntimeError(f"Failed to fetch data from API: {e}")
+        except (OSError, json.JSONDecodeError) as e:
+            self.logger.error(f"Failed to load data from {self.data_file}: {e}")
+            raise RuntimeError(f"Failed to load data from {self.data_file}: {e}")
 
 
 class EvidenceProcessor:
@@ -533,40 +531,10 @@ class ResultsManager:
 
         return priors.get(demandingness, 0.5)
 
-    def post_results(self, model_data: Dict) -> requests.Response:
-        """Post results to the external API."""
-        self.logger.info("Posting results to external API")
-        payload = {
-            "model_run": {
-                "scheme_id": 133,
-                "variant_number": 0,
-                "subvariant_number": 0,
-                "consciousness_probability": model_data["posterior"],
-                "output": model_data,
-                "parameters": {
-                    "weights": {
-                        "strong": self.config.STRONG,
-                        "overwhelming": self.config.OVERWHELMING,
-                        "weak": self.config.WEAK,
-                        "moderate": self.config.MODERATE,
-                    },
-                    "samples": self.config.NUM_SAMPLES,
-                    "tune": self.config.NUM_TUNE,
-                    "stance_alpha": self.config.DEFAULT_ALPHA,
-                    "stance_beta": self.config.DEFAULT_BETA,
-                },
-            }
-        }
-
-        try:
-            response = requests.post(self.config.POST_ENDPOINT, json=payload)
-            response.raise_for_status()
-            self.logger.info("Results posted successfully")
-            self.logger.debug(f"API response: {response.json()}")
-            return response
-        except requests.RequestException as e:
-            self.logger.error(f"Failed to post results: {e}")
-            raise
+    def post_results(self, model_data: Dict) -> None:
+        """Results are kept local; posting to an external API is disabled."""
+        self.logger.info("Result posting to an external API is disabled; results remain local only")
+        return None
 
 
 def main():
@@ -578,7 +546,7 @@ def main():
     # Initialize components
     logger.info("Initializing components")
     config = ModelConfig()
-    data_fetcher = DataFetcher(config.API_ENDPOINT)
+    data_fetcher = DataFetcher(config.DATA_FILE)
     evidence_processor = EvidenceProcessor(config)
     model_builder = BayesianModelBuilder(config, evidence_processor)
     results_manager = ResultsManager(config)

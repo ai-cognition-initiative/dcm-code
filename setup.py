@@ -10,7 +10,6 @@ setup(
         'pymc',
         'arviz',
         'pandas',
-        'requests',
         'matplotlib',
         'seaborn',
         'scikit-learn',

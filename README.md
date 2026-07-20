@@ -11,8 +11,8 @@ This repository contains the implementation of the Digital Consciousness Model (
 - **Bayesian Modeling**: Uses PyMC for probabilistic programming
 - **Evidence Integration**: Incorporates multiple levels of evidence through hierarchical models
 - **Flexible Configuration**: Configurable evidential strength constants and sampling parameters
-- **API Integration**: Fetches model specifications from the DCM API
-- **Results Management**: Processes and posts model results to external endpoints
+- **Fully Offline**: Model specifications are read from the local `model_data.json` file; no network access is required (this is a recent update)
+- **Results Management**: Processes and prints model results locally
 
 ## Installation
 
@@ -21,7 +21,6 @@ This repository contains the implementation of the Digital Consciousness Model (
 - Python 3.8+
 - PyMC
 - NumPy
-- Requests
 
 ### Setup
 
@@ -35,7 +34,7 @@ pip install -r requirements.txt
 Or install manually:
 
 ```bash
-pip install pymc numpy requests
+pip install pymc numpy
 ```
 
 ## Usage
@@ -59,11 +58,11 @@ The `ModelConfig` class contains all model parameters including:
 - Evidential strength constants (BASE, OVERWHELMING, STRONG, MODERATE, WEAK)
 - Sampling parameters (number of samples, tuning steps, chains)
 - Prior parameters (default alpha and beta values)
-- API endpoints
+- Path to the local data file
 
 ### Key Classes
 
-- **DataFetcher**: Handles data retrieval from external APIs
+- **DataFetcher**: Loads model data from the local JSON file
 - **EvidenceProcessor**: Processes evidence and observations, calculates Beta parameters
 - **BayesianModelBuilder**: Builds and manages PyMC Bayesian models
 - **ResultsManager**: Manages model results and output
@@ -81,16 +80,10 @@ Each level uses Beta-Bernoulli conjugate pairs, where:
 - Bernoulli variables model binary outcomes
 - Support and demandingness levels determine parameter values
 
-## API Integration
-
-The model fetches specifications from:
+## JSON File location (updated recently)
+The model specifications are stored in a JSON file located at:
 ```
-https://dcm.rethinkpriorities.org/schemes/133/json
-```
-
-Results are posted to:
-```
-https://dcm.rethinkpriorities.org/model_runs
+model_data.json
 ```
 
 ## License
@@ -99,5 +92,4 @@ This project is licensed under the MIT License.
 
 ## Citation
 
-[Link to arxiv paper ]
-
+https://arxiv.org/abs/2601.17060
