@@ -86,6 +86,30 @@ The model specifications are stored in a JSON file located at:
 model_data.json
 ```
 
+### Observation averages
+
+Both scripts generate indicator observations from the selected system's
+`observation_stats[system]["average"]`. A null or `-1` average means missing
+evidence and adds no observed Bernoulli variables. Other averages must be finite
+probabilities between zero and one, inclusive; numeric strings are supported.
+
+Invalid averages raise a `ValueError` identifying the indicator and system.
+The error stops model construction before MCMC sampling instead of silently
+dropping the invalid indicator. The scripts do not clamp, recompute or repair
+the supplied expert data.
+
+### Regression tests
+
+After installing the dependencies, run:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+These tests construct real PyMC graphs and check missing, invalid and valid
+observations, pooled draw order, and error propagation. The invalid-input test
+intercepts the sampler boundary; the suite does not run posterior sampling.
+
 ## License
 
 This project is licensed under the MIT License.

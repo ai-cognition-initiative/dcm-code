@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import random
 import sys
 import time
@@ -27,6 +28,10 @@ import random
 
 MODULE_DIR = Path(__file__).resolve().parent
 DEFAULT_DATA_FILE = MODULE_DIR / "model_data.json"
+
+
+class InvalidObservationProbability(ValueError):
+    """Invalid probability data must stop construction before sampling."""
 
 
 def get_default_alpha_beta_from_sensitivity_test_numbers(sensitivity_test_variant_number, sensitivity_test_subvariant_number):
@@ -218,17 +223,30 @@ class EvidenceProcessor:
             self.logger.error("No observations found in the data structure")
             raise ValueError("No observations found in the data structure")
     
-    def convert_observations_to_values(self, observations: List[str], position: int) -> List[int]:
-        """Convert observation probabilities to binary values, filtering out -1 values."""
-        raw_value = float(observations[position])
+    def convert_observations_to_values(self, observations: List[Any], position: int) -> List[int]:
+        """Draw binary observations from valid probabilities; skip missing values."""
+        value = observations[position]
+        if value is None:
+            return []
+        try:
+            raw_value = float(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise InvalidObservationProbability(
+                f"Expected a finite probability in [0, 1], got {value!r}"
+            ) from exc
         
         # Skip -1 values entirely
         if raw_value == -1:
             self.logger.debug(f"Skipping observation with value -1 at position {position}")
             return []
-        
+
+        if not math.isfinite(raw_value) or not 0 <= raw_value <= 1:
+            raise InvalidObservationProbability(
+                f"Expected a finite probability in [0, 1], got {value!r}"
+            )
+
         # Convert valid observations to binary
-        binary_value = 0 if raw_value < random.random() else 1
+        binary_value = 1 if random.random() < raw_value else 0
         return [binary_value]
     
     def get_beta_parameters(self, support: str, demandingness: str) -> Tuple[float, float, float, float]:
@@ -438,9 +456,18 @@ class BayesianModelBuilder:
         # Generate multiple i.i.d. observations
         obs_average = evidencer["observation_stats"][self.candidate_system]["average"]
         obs_list = []
-        for _ in range(num_obs):
-            binary_value = 0 if float(obs_average) < random.random() else 1
-            obs_list.append(binary_value)
+        try:
+            for _ in range(num_obs):
+                obs_list.extend(
+                    self.evidence_processor.convert_observations_to_values(
+                        [obs_average], 0
+                    )
+                )
+        except InvalidObservationProbability as exc:
+            raise InvalidObservationProbability(
+                f"Invalid observation average for {name!r} in system "
+                f"{self.candidate_system!r}: {exc}"
+            ) from exc
         
         if num_obs > 1:
             self.logger.debug(f"Generated {num_obs} pooled observations for {name}: {obs_list}")
@@ -488,6 +515,8 @@ class BayesianModelBuilder:
             try:
                 self.add_evidencer(parent_node, evidencer)
                 valid_evidencers += 1
+            except InvalidObservationProbability:
+                raise
             except Exception as e:
                 self.logger.warning(f"Failed to add evidencer {evidencer['name']}: {e}")
         

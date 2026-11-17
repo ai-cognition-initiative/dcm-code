@@ -19,6 +19,7 @@ pytensor.config.compiledir = f'/tmp/pytensor_cache_{os.getpid()}'
 
 import json
 import logging
+import math
 import random
 import time
 from dataclasses import dataclass
@@ -30,6 +31,10 @@ import pymc as pm
 
 MODULE_DIR = Path(__file__).resolve().parent
 DEFAULT_DATA_FILE = MODULE_DIR / "model_data.json"
+
+
+class InvalidObservationProbability(ValueError):
+    """Invalid probability data must stop construction before sampling."""
 
 
 @dataclass
@@ -117,10 +122,18 @@ class EvidenceProcessor:
             raise ValueError("No observations found in the data structure")
 
     def convert_observations_to_values(
-        self, observations: List[str], position: int
+        self, observations: List[Any], position: int
     ) -> List[int]:
-        """Convert observation probabilities to binary values, filtering out -1 values."""
-        raw_value = float(observations[position])
+        """Draw binary observations from valid probabilities; skip missing values."""
+        value = observations[position]
+        if value is None:
+            return []
+        try:
+            raw_value = float(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise InvalidObservationProbability(
+                f"Expected a finite probability in [0, 1], got {value!r}"
+            ) from exc
 
         # Skip -1 values entirely
         if raw_value == -1:
@@ -129,8 +142,13 @@ class EvidenceProcessor:
             )
             return []
 
+        if not math.isfinite(raw_value) or not 0 <= raw_value <= 1:
+            raise InvalidObservationProbability(
+                f"Expected a finite probability in [0, 1], got {value!r}"
+            )
+
         # Convert valid observations to binary
-        binary_value = 0 if raw_value < random.random() else 1
+        binary_value = 1 if random.random() < raw_value else 0
         return [binary_value]
 
     def get_beta_parameters(
@@ -295,7 +313,6 @@ class BayesianModelBuilder:
         if not self.candidate_system or self.observation_position is None:
             raise ValueError("Observation context not set")
 
-        obs_list = None
         # Check if this system has observations for this evidencer
         if self.candidate_system not in evidencer["observations"]:
             self.logger.debug(
@@ -304,13 +321,20 @@ class BayesianModelBuilder:
             return None
 
         obs_average = evidencer["observation_stats"][self.candidate_system]["average"]
-        binary_value = 0 if float(obs_average) < random.random() else 1
-        obs_list = [binary_value]
+        try:
+            obs_list = self.evidence_processor.convert_observations_to_values(
+                [obs_average], 0
+            )
+        except InvalidObservationProbability as exc:
+            raise InvalidObservationProbability(
+                f"Invalid observation average for {name!r} in system "
+                f"{self.candidate_system!r}: {exc}"
+            ) from exc
 
-        # If no valid observations (all were -1), skip this evidencer
+        # Missing observations must not become negative evidence.
         if not obs_list:
             self.logger.info(
-                f"Skipping evidencer {name} - no valid observations (all -1 values)"
+                f"Skipping evidencer {name} - missing observation average"
             )
             return None
 
@@ -358,6 +382,8 @@ class BayesianModelBuilder:
             try:
                 self.add_evidencer(parent_node, evidencer)
                 valid_evidencers += 1
+            except InvalidObservationProbability:
+                raise
             except Exception as e:
                 self.logger.warning(f"Failed to add evidencer {evidencer['name']}: {e}")
 
